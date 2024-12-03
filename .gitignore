@@ -1,0 +1,29 @@
+# Logs
+*.log
+
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+
+# Build output
+dist/
+build/
+
+# Cache files
+.cache/
+.parcel-cache/
+
+# Coverage reports
+coverage/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE files
+*.swp
+*.swo
+*.idea/
+.vscode/
