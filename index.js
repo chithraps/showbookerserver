@@ -8,7 +8,7 @@ const { Server } = require("socket.io");
 const express = require("express");
 require("dotenv").config();
 
-const port = process.env.port || 5000;
+const port = process.env.PORT || 8001;
 const app = express();
 const cors = require("cors");
 const path = require("path");
