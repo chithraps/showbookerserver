@@ -25,8 +25,6 @@ const theaterManagerSchema = new mongoose.Schema({
     default: Date.now,
   },
 });
-
-// Middleware to update the updated_at field on save
 theaterManagerSchema.pre('save', function(next) {
   this.updated_at = Date.now();
   next();

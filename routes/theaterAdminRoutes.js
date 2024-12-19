@@ -35,7 +35,7 @@ tmAdmin_rout.put("/updateRow",verifyToken('theaterAdmin'),theaterController.upda
 tmAdmin_rout.get("/fetchRowId", theaterController.fetchRows);
 tmAdmin_rout.get("/fetchRowDetails",verifyToken('theaterAdmin'), theaterController.fetchRowDetails);
 tmAdmin_rout.get("/viewBookings/:theaterId",verifyToken('theaterAdmin'),tmController.viewBookings)
-tmAdmin_rout.patch("/updatePassword/:theaterId",verifyToken('theaterAdmin'),tmController.changePassword)
+tmAdmin_rout.patch("/updatePassword/:id",verifyToken('theaterAdmin'),tmController.changePassword)
 tmAdmin_rout.get('/getDetails',verifyToken('theaterAdmin'),tmController.getDetails)
 tmAdmin_rout.get('/bookingsChart',verifyToken('theaterAdmin'),tmController.getBookingDetails)
 module.exports = tmAdmin_rout;

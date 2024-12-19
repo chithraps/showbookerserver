@@ -1,5 +1,9 @@
 const mongoose = require("mongoose");
+const crypto = require("crypto");
+const bcrypt = require("bcrypt");
+const nodemailer = require("nodemailer");
 const theater = require("../models/theaterModel");
+const theaterManager = require("../models/theaterManagerModel");
 const screen = require("../models/screenModel");
 const seatingLayout = require("../models/seatingLayoutModel");
 const row = require("../models/rowModel");
@@ -7,6 +11,65 @@ const section = require("../models/sectionModel");
 const seat = require("../models/seatModel");
 const showTimings = require("../models/showTimings");
 const movies = require("../models/moviesModel");
+const dotenv = require("dotenv");
+dotenv.config();
+
+const createPassword = () => {
+  const length = 10;
+  return crypto.randomBytes(length).toString("hex").slice(0, length);
+};
+const createSecurePassword = async (password) => {
+  try {
+    const passwordHash = await bcrypt.hash(password, 10);
+    return passwordHash;
+  } catch (error) {
+    console.log(error.message);
+  }
+};
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL,
+    pass: process.env.PASSWORD,
+  },
+});
+
+const sendPassword = async (email, password) => {
+  const mailOptions = {
+    from: process.env.EMAIL,
+    to: email,
+    subject: "Your Password for showbooker",
+    text: `Your password  is ${password}. Note : You should change the password after loggedin`,
+  };
+
+  await transporter.sendMail(mailOptions);
+};
+
+const countSeats = async (screenId) => {
+  // to count seats
+  const screenDetails = await screen
+    .findById(screenId)
+    .populate({
+      path: "seating_layout_ids",
+      populate: {
+        path: "row_ids",
+        populate: {
+          path: "seat_ids",
+        },
+      },
+    })
+    .exec();
+  let totalSeats = 0;
+  screenDetails.seating_layout_ids.forEach((layout) => {
+    layout.row_ids.forEach((row) => {
+      totalSeats += row.seat_ids.length;
+    });
+  });
+  console.log(
+    `total number of seats in screen ${screenDetails.screen_number} is ${totalSeats} and capacity ${screenDetails.capacity}`
+  );
+  return { totalSeats, capacity: screenDetails.capacity };
+};
 
 const parseTime = (timeStr) => {
   const [time, modifier] = timeStr.split(" ");
@@ -36,36 +99,94 @@ const validateTiming = (existingTimings, newTimings) => {
 };
 const createTheater = async (req, res) => {
   try {
-    const { name, location, city, state } = req.body;
+    const { name, location, city, state, managerEmail } = req.body;
+
+    // Check if the theater already exists
     const theaterExists = await theater.findOne({ name });
-    if (!theaterExists) {
-      const newTheater = new theater({
-        name,
-        location,
-        city,
-        state,
-      });
-      await newTheater.save();
-      res
-        .status(201)
-        .json({ success: true, message: "Theater added successfully!" });
-    } else {
+    if (theaterExists) {
       return res
         .status(400)
         .json({ success: false, message: "Theater already exists" });
     }
+
+    // Create a new theater
+    const newTheater = new theater({
+      name,
+      location,
+      city,
+      state,
+    });
+    await newTheater.save();
+
+    // Check if the theater manager already exists
+    const existingManager = await theaterManager.findOne({
+      email: managerEmail,
+    });
+    if (existingManager) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Theater manager already exists" });
+    }
+
+    // Generate a random password for the theater manager
+    const randomPassword = createPassword();
+    console.log("password ", randomPassword);
+    const securePassword = await createSecurePassword(randomPassword);
+
+    // Create a new theater manager
+    const newManager = new theaterManager({
+      email: managerEmail,
+      password: securePassword,
+      theater_id: newTheater._id,
+    });
+    await newManager.save();
+
+    // Optionally send the manager's credentials via email
+    await sendPassword(managerEmail, randomPassword);
+
+    res.status(201).json({
+      success: true,
+      message: "Theater and theater manager added successfully!",
+    });
   } catch (error) {
-    console.error("Error creating theater:", error);
-    res.status(500).json({ success: false, message: "Failed to add theater" });
+    console.error("Error creating theater and manager:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to add theater and manager" });
   }
 };
+
 const viewTheaters = async (req, res) => {
   try {
-    const { page = 1, limit = 10 } = req.query; 
+    const { page = 1, limit = 10 } = req.query;
     const skip = (page - 1) * limit;
 
     const theaters = await theater
-      .find({}, "name location city state")
+      .aggregate([
+        {
+          $lookup: {
+            from: "theatermanagers",
+            localField: "_id",
+            foreignField: "theater_id",
+            as: "manager",
+          },
+        },
+        {
+          $unwind: {
+            path: "$manager",
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+        {
+          $project: {
+            name: 1,
+            location: 1,
+            city: 1,
+            state: 1,
+            "manager.email": 1,
+          },
+        },
+      ])
       .skip(skip)
       .limit(parseInt(limit));
 
@@ -114,7 +235,7 @@ const addScreen = async (req, res) => {
 
     await newScreen.save();
     console.log("new screen ID : ", newScreen._id);
-   
+
     await theater.findByIdAndUpdate(theater_id, {
       $push: { screen_ids: newScreen._id },
     });
@@ -295,6 +416,34 @@ const addRows = async (req, res) => {
   console.log("In add rows ", layoutId, " ", rowName, " ", space);
 
   try {
+    // Fetch seating layout details
+    const seatingLayoutDetails = await seatingLayout
+      .findById(layoutId)
+      .populate("row_ids")
+      .exec();
+
+    if (!seatingLayoutDetails) {
+      return res.status(404).json({ message: "Seating layout not found" });
+    }
+
+    const { seat_capacity, row_ids } = seatingLayoutDetails;
+
+    // Calculate the current number of seats in the layout
+    let totalSeatsInLayout = 0;
+    for (const rowId of row_ids) {
+      const rowDetails = await row.findById(rowId).populate("seat_ids").exec();
+      if (rowDetails) {
+        totalSeatsInLayout += rowDetails.seat_ids.length;
+      }
+    }
+
+    // Check if the layout's seat capacity is already reached
+    if (totalSeatsInLayout >= seat_capacity) {
+      return res.status(400).json({
+        message:
+          "The seating layout is already at full capacity. Cannot add more rows.",
+      });
+    }
     // Check if a row with the same row_name and seating_layout_id exists
     const existingRow = await row.findOne({
       row_name: rowName,
@@ -335,32 +484,32 @@ const addRows = async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 };
-const updateRow = async (req,res)=>{
+const updateRow = async (req, res) => {
   const { rowId, space, spacingPosition } = req.body;
 
   try {
-    
     if (!rowId || space === undefined || !spacingPosition) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    
     const updatedRow = await row.findByIdAndUpdate(
       rowId,
       { space, spacingPosition },
-      { new: true } 
+      { new: true }
     );
 
     if (!updatedRow) {
       return res.status(404).json({ message: "Row not found" });
     }
 
-    res.status(200).json({ message: "Row updated successfully", row: updatedRow });
+    res
+      .status(200)
+      .json({ message: "Row updated successfully", row: updatedRow });
   } catch (error) {
     console.error("Error updating row:", error);
     res.status(500).json({ message: "Failed to update row" });
   }
-}
+};
 
 const viewRows = async (req, res) => {
   const { sectionIds } = req.query;
@@ -383,6 +532,7 @@ const viewRows = async (req, res) => {
 
 const addSeats = async (req, res) => {
   const {
+    screenId,
     startSeatNumber,
     endSeatNumber,
     rowId,
@@ -419,7 +569,7 @@ const addSeats = async (req, res) => {
       seatNumber++
     ) {
       let seatSpacing = 0;
-      let seatSpacingPosition = spacingPosition || "after"; // Default to 'after' if not provided
+      let seatSpacingPosition = spacingPosition || "after";
 
       // Add spacing if gapAfter condition is met
       if (gapAfter && seatNumber == gapAfter) {
@@ -437,7 +587,7 @@ const addSeats = async (req, res) => {
       seats.push(newSeat);
     }
 
-    // Save all seats in bulk using `insertMany`
+    // Save all seats in bulk using insertMany
     const savedSeats = await seat.insertMany(seats);
 
     savedSeats.forEach((seat) => {
@@ -451,9 +601,16 @@ const addSeats = async (req, res) => {
       { new: true }
     );
 
+    const { totalSeats, capacity } = await countSeats(screenId);
+    const allSeatsStored = totalSeats === capacity;
+    console.log("all seats stored ", allSeatsStored, " ", capacity);
     return res.status(201).json({
-      message: `${savedSeats.length} seats added successfully`,
+      message:
+        totalSeats === capacity
+          ? "All seats are filled successfully. No more seats can be added."
+          : "Seats added successfully",
       seats: savedSeats,
+      allSeatsStored,
     });
   } catch (error) {
     console.error("Error adding seats:", error);
@@ -501,7 +658,7 @@ const fetchScreenDetails = async (req, res) => {
 
 const viewShowTimings = async (req, res) => {
   try {
-    const { page = 1, limit = 10,theaterId  } = req.query;
+    const { page = 1, limit = 10, theaterId } = req.query;
     const query = theaterId ? { theater_id: theaterId } : {};
     const showTimingList = await showTimings
       .find(query)
@@ -668,10 +825,10 @@ const editScreen = async (req, res) => {
 const updateLayout = async (req, res) => {
   try {
     const { layoutId, class_name, price } = req.body;
-    console.log("in updatelayout ")
+    console.log("in updatelayout ");
     if (!layoutId || !class_name || !price) {
       return res.status(400).json({ error: "All fields are required" });
-    }   
+    }
     const updatedLayout = await seatingLayout.findByIdAndUpdate(
       layoutId,
       { class_name, price, updated_at: Date.now() },
@@ -682,7 +839,9 @@ const updateLayout = async (req, res) => {
       return res.status(404).json({ error: "Layout not found" });
     }
 
-    res.status(200).json({ message: "Layout updated successfully", layout: updatedLayout });
+    res
+      .status(200)
+      .json({ message: "Layout updated successfully", layout: updatedLayout });
   } catch (error) {
     console.error("Error updating layout:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -864,10 +1023,22 @@ const getTheaterLocations = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch cities" });
   }
 };
+const deleteTheater = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isDeleted } = req.body;
+    console.log("isDeleted ",isDeleted)
+    await theater.findByIdAndUpdate(id, { isDeleted });
+    res.status(200).send({ message: 'Theater status updated successfully' });
+  } catch (error) {
+    res.status(500).send({ message: 'Error updating theater status', error });
+  }
+};
 
 module.exports = {
   createTheater,
   editTheater,
+  deleteTheater,
   viewTheaters,
   addScreen,
   viewScreens,

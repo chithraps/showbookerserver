@@ -2,12 +2,14 @@ const nodemailer = require("nodemailer");
 const seat = require("../models/seatModel");
 const row = require("../models/rowModel");
 const Booking = require("../models/bookingModel");
-const ShowTimings=require("../models/showTimings")
+const ShowTimings = require("../models/showTimings");
 const HeldSeat = require("../models/heldSeatModel");
 const theaters = require("../models/theaterModel");
 const movies = require("../models/moviesModel");
 const screen = require("../models/screenModel");
 const wallet = require("../models/WalletModel");
+const {S3Client,GetObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const Razorpay = require("razorpay");
 const qrcode = require("qrcode");
 const crypto = require("crypto");
@@ -18,7 +20,29 @@ const razorpayInstance = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
+const s3 = new S3Client({
+  region: process.env.S3_BUCKET_REGION,
+  credentials: {
+    accessKeyId: process.env.S3_ACCESS_KEY,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+  },
+});
 
+async function generatePresignedUrl(bucketName, key) {
+  
+  try {
+    const command = new GetObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+    });
+
+    const url = await getSignedUrl(s3, command, { expiresIn: 3600 }); // 1 hour expiration
+    return url;
+  } catch (error) {
+    console.error("Error generating presigned URL:", error);
+    return null; 
+  }
+}
 const holdSeats = async (
   { userId, screenId, showDate, showTime, seatIds },
   releaseHoldCallback
@@ -155,74 +179,72 @@ const bookTicket = async (req, res) => {
       payment,
     } = req.body;
 
-    
     const showDetails = await ShowTimings.findOne({
       theater_id: theaterId,
       screen_id: screenId,
       movie_id: movieId,
       timings: showTime,
     });
-    console.log("showDetails ",showDetails)
+    console.log("showDetails ", showDetails);
     if (!showDetails) {
-      console.log("Invalid show details provided")
+      console.log("Invalid show details provided");
       return res.status(400).json({ message: "Invalid show details provided" });
     }
 
-   
     const existingBookings = await Booking.find({
       screenId,
       showDate,
       showTime,
       "seatIds.seatId": { $in: seatIds },
     });
-    console.log("existingBookings ",existingBookings)
+    console.log("existingBookings ", existingBookings);
     if (existingBookings.length > 0) {
-      console.log("Some seats are already booked")
+      console.log("Some seats are already booked");
       return res.status(400).json({ message: "Some seats are already booked" });
     }
 
-    
     let calculatedTotalPrice = 0;
     for (const seatId of seatIds) {
       const seatInfo = await seat.findById(seatId).populate("row_id");
       if (!seatInfo) {
-        console.log(" seatInfo notfound!! ")
+        console.log(" seatInfo notfound!! ");
         throw new Error(`Seat with ID ${seatId} not found`);
       }
       calculatedTotalPrice += seatInfo.row_id.price;
     }
 
     if (calculatedTotalPrice >= totalAmount) {
-      console.log("Invalid total amount provided")
+      console.log("Invalid total amount provided");
       return res.status(400).json({ message: "Invalid total amount provided" });
     }
 
-    
     if (!["razorpay", "wallet"].includes(payment.method)) {
-      console.log("Invalid payment method")
+      console.log("Invalid payment method");
       return res.status(400).json({ message: "Invalid payment method" });
     }
 
     if (!payment.transactionId && payment.method === "razorpay") {
-      console.log("Transaction ID is required for Razorpay")
-      return res.status(400).json({ message: "Transaction ID is required for Razorpay" });
+      console.log("Transaction ID is required for Razorpay");
+      return res
+        .status(400)
+        .json({ message: "Transaction ID is required for Razorpay" });
     }
-    
+
     const formattedSeatIds = seatIds.map((seatId) => ({
       seatId: seatId,
       status: "Booked",
     }));
-    
+
     const theaterDetails = await theaters.findById({ _id: theaterId });
     if (!theaterDetails) {
       throw new Error("Theater not found");
     }
-  
+
     const bookingCount = await Booking.countDocuments({ theaterId });
     const theaterPrefix = theaterDetails.name.substring(0, 3).toUpperCase();
     const digits = String(bookingCount + 1).padStart(12, "0");
     const bookingId = `${theaterPrefix}${digits}`;
-   
+
     const newBooking = new Booking({
       userId,
       userEmail,
@@ -237,7 +259,7 @@ const bookTicket = async (req, res) => {
       status: "Confirmed",
       bookingId,
     });
-   
+
     const qrData = {
       bookingId,
       userEmail,
@@ -250,10 +272,10 @@ const bookTicket = async (req, res) => {
       totalAmount,
     };
     const qrCodeUrl = await qrcode.toDataURL(JSON.stringify(qrData));
-    
-    newBooking.qrCode = qrCodeUrl;    
+
+    newBooking.qrCode = qrCodeUrl;
     const savedBooking = await newBooking.save();
-    
+
     const screenDetails = await screen.findById({ _id: screenId });
     const movieDetails = await movies.findById({ _id: movieId });
 
@@ -278,7 +300,7 @@ const bookTicket = async (req, res) => {
     });
 
     const seatDetails = await Promise.all(seatDetailsPromises);
-    
+
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
@@ -287,14 +309,12 @@ const bookTicket = async (req, res) => {
       },
     });
 
-    
     const qrCodeBuffer = Buffer.from(
       qrCodeUrl.replace(/^data:image\/\w+;base64,/, ""),
       "base64"
     );
 
-    
-    const mailOptions = {  
+    const mailOptions = {
       from: process.env.EMAIL,
       to: userEmail,
       subject: "Your Movie Ticket Booking Confirmation",
@@ -302,10 +322,18 @@ const bookTicket = async (req, res) => {
         <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; max-width: 600px; margin: 0 auto; border: 1px solid #ccc; border-radius: 8px; padding: 20px; background-color: #f9f9f9;">
           <h2 style="color: #4CAF50; text-align: center; margin-bottom: 20px;">Booking Confirmation</h2>
           <p style="font-size: 16px; margin-bottom: 8px;">Booking ID: <strong>${bookingId}</strong></p>
-          <p style="font-size: 16px; margin-bottom: 8px;">Theater: <strong>${theaterDetails.name}</strong></p>
-          <p style="font-size: 16px; margin-bottom: 8px;">Movie: <strong>${movieDetails.title}</strong></p>
-          <p style="font-size: 16px; margin-bottom: 8px;">Screen: <strong>${screenDetails.screen_number}</strong></p>
-          <p style="font-size: 16px; margin-bottom: 8px;">Show Date: <strong>${new Date(showDate).toLocaleDateString()}</strong></p>
+          <p style="font-size: 16px; margin-bottom: 8px;">Theater: <strong>${
+            theaterDetails.name
+          }</strong></p>
+          <p style="font-size: 16px; margin-bottom: 8px;">Movie: <strong>${
+            movieDetails.title
+          }</strong></p>
+          <p style="font-size: 16px; margin-bottom: 8px;">Screen: <strong>${
+            screenDetails.screen_number
+          }</strong></p>
+          <p style="font-size: 16px; margin-bottom: 8px;">Show Date: <strong>${new Date(
+            showDate
+          ).toLocaleDateString()}</strong></p>
           <p style="font-size: 16px; margin-bottom: 8px;">Show Time: <strong>${showTime}</strong></p>
           <p style="font-size: 16px; margin-bottom: 8px;">Total Price: <strong>₹${totalAmount}</strong></p>
           <p style="font-size: 16px; margin-bottom: 8px;">Seats:</p>
@@ -330,16 +358,16 @@ const bookTicket = async (req, res) => {
       `,
       attachments: [
         {
-          filename: "qr-code.png", 
-          content: qrCodeBuffer, 
+          filename: "qr-code.png",
+          content: qrCodeBuffer,
           contentType: "image/png",
-          cid: "qr-code", 
+          cid: "qr-code",
         },
       ],
-    };    
-    
+    };
+
     await transporter.sendMail(mailOptions);
-    
+
     res.status(201).json({ booking: savedBooking, qrCode: qrCodeUrl });
   } catch (error) {
     console.error("Error saving booking or sending email:", error);
@@ -349,10 +377,9 @@ const bookTicket = async (req, res) => {
   }
 };
 
-
 const getBookingHistory = async (req, res) => {
   try {
-    const { userEmail } = req.params;    
+    const { userEmail } = req.params;
     const bookings = await Booking.find({ userEmail })
       .populate("movieId")
       .populate("theaterId")
@@ -371,13 +398,25 @@ const getBookingHistory = async (req, res) => {
         .status(404)
         .json({ message: "No booking history found for this user." });
     }
+    const bucketName = "showbookerfiles";
+    const updatedBookings = await Promise.all(
+      bookings.map(async (booking) => {
+        const movie = booking.movieId; 
+        const moviePosterUrl = await generatePresignedUrl(
+          bucketName,
+          movie.poster
+        );
+        movie.poster = moviePosterUrl;
+        return booking;
+      })
+    );
     const bookedSeatCount = bookings.reduce((count, booking) => {
-      const bookedSeats = booking.seatIds.filter(seat => seat.status === "Booked");
+      const bookedSeats = booking.seatIds.filter(
+        (seat) => seat.status === "Booked"
+      );
       return count + bookedSeats.length;
-    }, 0);
-
-
-    res.status(200).json({ bookings, bookedSeatCount });
+    }, 0);   
+    res.status(200).json({ bookings: updatedBookings, bookedSeatCount });
   } catch (error) {
     console.error("Error fetching booking history:", error);
     res.status(500).json({ message: "Error fetching booking history", error });
@@ -385,23 +424,32 @@ const getBookingHistory = async (req, res) => {
 };
 const cancelBooking = async (req, res) => {
   try {
-   
     const { bookingId } = req.params;
-    const userId = req.user?.userId; 
+    const userId = req.user?.userId;
     const userEmail = req.user?.userEmail;
-    console.log("booking id ,in cancel ticket ", bookingId, " ", userId," ",userEmail);
-    if(!userId && !userEmail){
-      return res.status(500).json({message :"user email and id is required"})
+    console.log(
+      "booking id ,in cancel ticket ",
+      bookingId,
+      " ",
+      userId,
+      " ",
+      userEmail
+    );
+    if (!userId && !userEmail) {
+      return res.status(500).json({ message: "user email and id is required" });
     }
     const bookingInfo = await Booking.findById(bookingId);
-    
+
     if (!bookingInfo) {
-        return res.status(404).json({ message: 'Booking not found.' });
-    }   
-    const isOwner = bookingInfo.userId === userId || bookingInfo.email === userEmail;
+      return res.status(404).json({ message: "Booking not found." });
+    }
+    const isOwner =
+      bookingInfo.userId === userId || bookingInfo.email === userEmail;
 
     if (!isOwner) {
-        return res.status(403).json({ message: 'You are not authorized to cancel this booking.' });
+      return res
+        .status(403)
+        .json({ message: "You are not authorized to cancel this booking." });
     }
 
     const booking = await Booking.findByIdAndUpdate(
@@ -458,7 +506,7 @@ const cancelSeat = async (req, res) => {
       return res
         .status(400)
         .json({ message: "Seat not found or already canceled" });
-    }   
+    }
     console.log("seatId ", seatId, " ", typeof seatId);
     const seatDetails = await seat.findById(seatId).populate({
       path: "row_id",
@@ -473,11 +521,11 @@ const cancelSeat = async (req, res) => {
     }
 
     const seatPrice = seatDetails.row_id.seating_layout_id.price;
-    console.log("seatPrice ", seatPrice);    
+    console.log("seatPrice ", seatPrice);
     seatObject.status = "Canceled";
     booking.totalPrice -= seatPrice;
     await booking.save();
-    
+
     let userWallet = await wallet.findOne({ userId });
     if (!userWallet) {
       userWallet = new wallet({ userId, balance: 0 });

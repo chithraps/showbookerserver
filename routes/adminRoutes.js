@@ -13,6 +13,7 @@ admin_rout.patch('/blockUser/:userId',verifyToken('admin'),adminController.block
 admin_rout.get('/viewTheaters',verifyToken('admin'),theaterController.viewTheaters);
 admin_rout.put('/editTheater/:theaterId',verifyToken('admin'),theaterController.editTheater)
 admin_rout.post('/addTheater',verifyToken('admin'),theaterController.createTheater);
+admin_rout.put('/deleteTheater/:id',verifyToken('admin'),theaterController.deleteTheater)
 admin_rout.get('/viewGenres',verifyToken('admin'),adminController.viewGenres);   
 admin_rout.post('/addGenre',verifyToken('admin'),adminController.addGenre)
 admin_rout.put('/updateGenre/:genreId',verifyToken('admin'),adminController.updateGenre)

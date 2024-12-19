@@ -2,7 +2,7 @@ const bcrypt = require("bcrypt");
 const theaterAdmin = require("../models/theaterManagerModel");
 const screen = require("../models/screenModel");
 const Bookings = require("../models/bookingModel");
-const ShowTimings = require("../models/showTimings")
+const ShowTimings = require("../models/showTimings");
 const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
 const createToken = (id, email) => {
@@ -22,31 +22,42 @@ const createToken = (id, email) => {
 const loginTheaterManager = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const tmData = await theaterAdmin.findOne({ email });
-    if (!tmData) {
-      res.json({ message: "Invalid username or password" });
-    } else {
-      const passwordMatch = await bcrypt.compare(password, tmData.password);
-      if (passwordMatch) {
-        const token = createToken(tmData._id, tmData.email);
 
-        res.json({
-          token,
-          theaterAdmin: {
-            theaterId: tmData.theater_id,
-            email: tmData.email,
-          },
-        });
-      } else {
-        res.status(400).json({ message: "Invalid Email or Password" });
-        console.log("password doesn't match");
-      }
+    // Find the theaterAdmin by email
+    const tmData = await theaterAdmin.findOne({ email }).populate('theater_id');
+    if (!tmData) {
+      return res.status(400).json({ message: "Invalid username or password" });
+    }
+
+    // Check if the associated theater is blocked (isDeleted is true)
+    if (tmData.theater_id.isDeleted) {
+      return res.status(403).json({ message: "Theater is blocked. Contact support." });
+    }
+
+    // Verify the password
+    const passwordMatch = await bcrypt.compare(password, tmData.password);
+    if (passwordMatch) {
+      // Generate a token for the theaterAdmin
+      const token = createToken(tmData._id, tmData.email);
+
+      return res.json({
+        token,
+        theaterAdmin: {
+          id: tmData._id,
+          theaterId: tmData.theater_id._id,
+          email: tmData.email,
+        },
+      });
+    } else {
+      return res.status(400).json({ message: "Invalid username or password" });
     }
   } catch (error) {
-    res
-      .status(500)
-      .json({ success: false, message: "Error while login", error });
-    console.log(error);
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Error during login. Please try again.",
+      error,
+    });
   }
 };
 const viewBookings = async (req, res) => {
@@ -88,19 +99,20 @@ const viewBookings = async (req, res) => {
 const changePassword = async (req, res) => {
   try {
     const { password } = req.body;
-    const theaterId = req.params.theaterId;
-    console.log(password, " AND ", theaterId);
+    const id = req.params.id;
+    console.log(password, " AND ", id);
 
     if (!password) {
       return res.status(400).json({ error: "Password is required." });
     }
-
+   
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    await theaterAdmin.findByIdAndUpdate(theaterId, {
+    console.log(" hashed password ", hashedPassword);
+    const updatedT = await theaterAdmin.findByIdAndUpdate(id, {
       password: hashedPassword,
       updated_at: Date.now(),
     });
+    console.log("updated one ", updatedT);
 
     res.status(200).json({ message: "Password updated successfully." });
   } catch (error) {
@@ -128,7 +140,7 @@ const getDetails = async (req, res) => {
       {
         $match: {
           theaterId: objectTheaterId,
-          status: "Confirmed", 
+          status: "Confirmed",
         },
       },
       { $group: { _id: null, totalRevenue: { $sum: "$totalPrice" } } },
@@ -137,7 +149,7 @@ const getDetails = async (req, res) => {
 
     const activeShowsCount = await ShowTimings.countDocuments({
       theater_id: objectTheaterId,
-      blockShow: false
+      blockShow: false,
     });
 
     res.json({
@@ -165,10 +177,10 @@ const getBookingDetails = async (req, res) => {
       {
         $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$showDate" } },
-          count: { $sum: 1 }
-        }
+          count: { $sum: 1 },
+        },
       },
-      { $sort: { _id: 1 } }
+      { $sort: { _id: 1 } },
     ]);
 
     console.log("bookings:", bookings);
@@ -178,7 +190,6 @@ const getBookingDetails = async (req, res) => {
     res.status(500).send({ message: "Error fetching bookings data", error });
   }
 };
-
 
 module.exports = {
   loginTheaterManager,
