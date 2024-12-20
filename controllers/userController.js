@@ -337,7 +337,7 @@ const fetchTheatersForMovie = async (req, res) => {
     const { id } = req.params;
     const { location, selectedDate } = req.query;
 
-    console.log("In fetch theaters for movie ");
+    console.log("In fetch theaters for movie");
     console.log(id, location, selectedDate);
 
     const theatersInLocation = await theaters.find({
@@ -354,8 +354,10 @@ const fetchTheatersForMovie = async (req, res) => {
       .populate("screen_id");
 
     const selectedDateObj = new Date(selectedDate);
+
+    // Get IST Time
     const utcNow = new Date();
-    const istOffset = 5 * 60 * 60 * 1000 + 30 * 60 * 1000; 
+    const istOffset = 5 * 60 * 60 * 1000 + 30 * 60 * 1000; // IST offset in milliseconds
     const istNow = new Date(utcNow.getTime() + istOffset);
 
     const isToday = selectedDateObj.toDateString() === istNow.toDateString();
@@ -365,7 +367,7 @@ const fetchTheatersForMovie = async (req, res) => {
       let filteredTimings = show.timings;
 
       if (isToday) {
-        const currentTime = today.getHours() * 60 + today.getMinutes();
+        const currentISTTimeInMinutes = istNow.getHours() * 60 + istNow.getMinutes();
 
         filteredTimings = show.timings.filter((timing) => {
           // Convert 12-hour time format with AM/PM to 24-hour time format
@@ -384,9 +386,9 @@ const fetchTheatersForMovie = async (req, res) => {
 
           const showTimeInMinutes = hours * 60 + minutes;
 
-          return showTimeInMinutes > currentTime;
+          return showTimeInMinutes > currentISTTimeInMinutes;
         });
-        console.log(filteredTimings)
+        console.log(filteredTimings);
       }
 
       return {
@@ -401,7 +403,6 @@ const fetchTheatersForMovie = async (req, res) => {
         country: show.theater_id.country,
       };
     });
-    
 
     res.status(200).json(showTimingList);
   } catch (error) {
@@ -409,6 +410,7 @@ const fetchTheatersForMovie = async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
+
 const fetchShowingMovies = async (req, res) => {
   const { location } = req.query; 
   try {
