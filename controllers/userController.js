@@ -354,8 +354,11 @@ const fetchTheatersForMovie = async (req, res) => {
       .populate("screen_id");
 
     const selectedDateObj = new Date(selectedDate);
-    const today = new Date();
-    const isToday = selectedDateObj.toDateString() === today.toDateString();
+    const utcNow = new Date();
+    const istOffset = 5 * 60 * 60 * 1000 + 30 * 60 * 1000; 
+    const istNow = new Date(utcNow.getTime() + istOffset);
+
+    const isToday = selectedDateObj.toDateString() === istNow.toDateString();
     console.log("isToday:", isToday);
 
     showTimingList = showTimingList.map((show) => {
