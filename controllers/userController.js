@@ -383,6 +383,7 @@ const fetchTheatersForMovie = async (req, res) => {
 
           return showTimeInMinutes > currentTime;
         });
+        console.log(filteredTimings)
       }
 
       return {
@@ -397,6 +398,7 @@ const fetchTheatersForMovie = async (req, res) => {
         country: show.theater_id.country,
       };
     });
+    
 
     res.status(200).json(showTimingList);
   } catch (error) {
