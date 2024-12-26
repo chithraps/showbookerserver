@@ -13,7 +13,7 @@ user_rout.get('/movieDetails/:id',userController.fetchMovieDetails);
 user_rout.get('/theatersForMovie/:id',userController.fetchTheatersForMovie)
 user_rout.get('/fetchNovwShowingMovies',userController.fetchShowingMovies);
 user_rout.get('/showScreenLayout/:screenId',userController.showScreenLayout);
-user_rout.put('/edit-profile/:id',verifyToken('user'),userController.editProfile)
+user_rout.put('/edit-profile/:userId',verifyToken('user'),userController.editProfile)
 user_rout.get('/fetchUserDetails/:userId',verifyToken('user'),userController.fetchUserDetails)
 user_rout.get('/moviesInTheaters',userController.fetchMoviesIntheaters);
 user_rout.get('/fetchDetails',userController.fetchDetails);

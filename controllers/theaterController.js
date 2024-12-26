@@ -201,12 +201,13 @@ const viewTheaters = async (req, res) => {
 
 const editTheater = async (req, res) => {
   try {
+    console.log("In edit Theaters")
     const theaterDetails = await theater.findById(req.params.theaterId);
     if (!theaterDetails)
       return res.status(404).json({ message: "Theater not found" });
 
     Object.assign(theaterDetails, req.body);
-    theaterDetails.updated_at = Date.now();
+    theaterDetails.updated_at = Date.now(); 
 
     await theaterDetails.save();
     res.json(theaterDetails);
@@ -865,6 +866,7 @@ const viewMovies = async (req, res) => {
   }
 };
 const deleteScreen = async (req, res) => {
+  console.log("in delete screen")
   const session = await mongoose.startSession();
   session.startTransaction();
 

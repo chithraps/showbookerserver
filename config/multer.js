@@ -22,15 +22,19 @@ const s3 = new S3Client({
     }),
     limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB file size limit
   });
-const bannerImage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, 'public/bannerImages/');
+const bannerImageUpload = multer({
+  storage: multerS3({
+    s3: s3,
+    bucket: "showbookerfiles", 
+    metadata: (req, file, cb) => {
+      cb(null, { fieldName: file.fieldname });
     },
-    filename: (req, file, cb) => {
-        cb(null, Date.now() + '-' + file.originalname);
+    key: (req, file, cb) => {
+      cb(null, `banners/${Date.now().toString()}-${file.originalname}`); // Prefix for banners
     },
-})
-const bannerImageUpload = multer({storage:bannerImage})
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB file size limit
+});
 module.exports = {
     imageUpload,
     bannerImageUpload,

@@ -10,16 +10,15 @@ const booking = require("../models/bookingModel");
 const seat = require("../models/seatModel");
 const row = require("../models/rowModel");
 const RateAndReview = require("../models/rateAndReviewModel");
-const {S3Client,GetObjectCommand } = require("@aws-sdk/client-s3");
+const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const wallet = require("../models/WalletModel");
 const jwt = require("jsonwebtoken");
 const axios = require("axios");
 const dotenv = require("dotenv");
 const mongoose = require("mongoose");
-const Banner = require("../models/bannerModel")
+const Banner = require("../models/bannerModel");
 dotenv.config();
-
 
 const s3 = new S3Client({
   region: process.env.S3_BUCKET_REGION,
@@ -30,7 +29,6 @@ const s3 = new S3Client({
 });
 
 async function generatePresignedUrl(bucketName, key) {
- 
   try {
     const command = new GetObjectCommand({
       Bucket: bucketName,
@@ -41,7 +39,7 @@ async function generatePresignedUrl(bucketName, key) {
     return url;
   } catch (error) {
     console.error("Error generating presigned URL:", error);
-    return null; 
+    return null;
   }
 }
 
@@ -98,9 +96,14 @@ const userSignIn = async (req, res) => {
         }
       );
       const userDetails = response.data;
-      console.log("userDetails ",userDetails)
+      console.log("userDetails ", userDetails);
       const userEmail = userDetails.email;
       const existingUser = await users.findOne({ email: userEmail });
+      if (existingUser && existingUser.blockUser) {
+        return res
+          .status(403)
+          .json({ message: "User is blocked. Access denied." });
+      }
       if (!existingUser) {
         console.log("new user");
         const user = new users({
@@ -136,11 +139,16 @@ const userSignIn = async (req, res) => {
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
-        }
+        },
       });
     } else if (type === "email" && email) {
-      console.log("email given ",email)
+      console.log("email given ", email);
       const existingUser = await users.findOne({ email });
+      if (existingUser && existingUser.blockUser) {
+        return res
+          .status(403)
+          .json({ message: "User is blocked. Access denied." });
+      }
       if (!existingUser) {
         const user = new users({
           email,
@@ -228,11 +236,12 @@ const resendOtp = async (req, res) => {
 };
 const editProfile = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { userId } = req.params;
+    console.log(" form data ", req.body.formData);
     const { firstName, lastName, email, mobileNumber } = req.body.formData;
     console.log(
       "id firstName lastName ",
-      id,
+      userId,
       " ",
       firstName,
       " ",
@@ -240,7 +249,7 @@ const editProfile = async (req, res) => {
       " "
     );
     const updatedUser = await users.findByIdAndUpdate(
-      id,
+      userId,
       {
         firstName,
         lastName,
@@ -266,6 +275,7 @@ const editProfile = async (req, res) => {
       },
     });
   } catch (error) {
+    console.log(error);
     res
       .status(500)
       .json({ message: "Error updating user", error: error.message });
@@ -317,13 +327,15 @@ const fetchMovieDetails = async (req, res) => {
     if (!movie) {
       return res.status(404).json({ message: "Movie not found" });
     }
-    const bucketName = "showbookerfiles"; 
-    const posterPresignedUrl = await generatePresignedUrl(bucketName, movie.poster);
+    const bucketName = "showbookerfiles";
+    const posterPresignedUrl = await generatePresignedUrl(
+      bucketName,
+      movie.poster
+    );
 
-    
     const movieWithPresignedUrl = {
       ...movie._doc,
-      posterUrl: posterPresignedUrl, 
+      posterUrl: posterPresignedUrl,
     };
 
     res.json(movieWithPresignedUrl);
@@ -337,7 +349,7 @@ const fetchTheatersForMovie = async (req, res) => {
     const { id } = req.params;
     const { location, selectedDate } = req.query;
 
-    console.log("In fetch theaters for movie");
+    console.log("In fetch theaters for movie ");
     console.log(id, location, selectedDate);
 
     const theatersInLocation = await theaters.find({
@@ -354,20 +366,15 @@ const fetchTheatersForMovie = async (req, res) => {
       .populate("screen_id");
 
     const selectedDateObj = new Date(selectedDate);
-
-    // Get IST Time
-    const utcNow = new Date();
-    const istOffset = 5 * 60 * 60 * 1000 + 30 * 60 * 1000; // IST offset in milliseconds
-    const istNow = new Date(utcNow.getTime() + istOffset);
-
-    const isToday = selectedDateObj.toDateString() === istNow.toDateString();
+    const today = new Date();
+    const isToday = selectedDateObj.toDateString() === today.toDateString();
     console.log("isToday:", isToday);
 
     showTimingList = showTimingList.map((show) => {
       let filteredTimings = show.timings;
 
       if (isToday) {
-        const currentISTTimeInMinutes = istNow.getHours() * 60 + istNow.getMinutes();
+        const currentTime = today.getHours() * 60 + today.getMinutes();
 
         filteredTimings = show.timings.filter((timing) => {
           // Convert 12-hour time format with AM/PM to 24-hour time format
@@ -386,7 +393,7 @@ const fetchTheatersForMovie = async (req, res) => {
 
           const showTimeInMinutes = hours * 60 + minutes;
 
-          return showTimeInMinutes > currentISTTimeInMinutes;
+          return showTimeInMinutes > currentTime;
         });
         console.log(filteredTimings);
       }
@@ -410,45 +417,51 @@ const fetchTheatersForMovie = async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
-
 const fetchShowingMovies = async (req, res) => {
-  const { location } = req.query; 
+  const { location } = req.query;
   try {
-    const theaterList = await theaters.find({ city: location }).select("_id screen_ids");   
-    
-   
+    const theaterList = await theaters
+      .find({ city: location })
+      .select("_id screen_ids");
+
     const screenIds = theaterList.reduce((acc, theater) => {
       return [...acc, ...theater.screen_ids];
     }, []);
 
-   
-    const showTimingsList = await showTimings.find({
-      screen_id: { $in: screenIds },
-    }).populate("movie_id");
+    const showTimingsList = await showTimings
+      .find({
+        screen_id: { $in: screenIds },
+      })
+      .populate("movie_id");
 
-   
     const movieIds = [
       ...new Set(showTimingsList.map((show) => show.movie_id._id.toString())),
     ];
 
-    
-    const movieList = await movies.find({ _id: { $in: movieIds } }).populate("genre_id");
-    
-    const bucketName = "showbookerfiles"; 
+    const movieList = await movies
+      .find({ _id: { $in: movieIds } })
+      .populate("genre_id");
+
+    const bucketName = "showbookerfiles";
     const moviesWithPresignedUrls = await Promise.all(
       movieList.map(async (movie) => {
-        const presignedUrl = await generatePresignedUrl(bucketName, movie.poster);
+        const presignedUrl = await generatePresignedUrl(
+          bucketName,
+          movie.poster
+        );
         return {
           ...movie._doc,
-          posterUrl: presignedUrl, 
+          posterUrl: presignedUrl,
         };
       })
     );
-    
+
     res.status(200).json(moviesWithPresignedUrls);
   } catch (error) {
     console.error("Error fetching movies:", error);
-    res.status(500).json({ message: "An error occurred while fetching movies" });
+    res
+      .status(500)
+      .json({ message: "An error occurred while fetching movies" });
   }
 };
 const showScreenLayout = async (req, res) => {
@@ -502,7 +515,7 @@ const showScreenLayout = async (req, res) => {
         screenId: screenId,
         showDate: parsedShowDate,
         showTime: showTime,
-        status: { $in: ["Confirmed", "Pending"] }, 
+        status: { $in: ["Confirmed", "Pending"] },
       })
       .select("seatIds.seatId seatIds.status")
       .lean();
@@ -604,7 +617,12 @@ const fetchWalletBalance = async (req, res) => {
   try {
     const userId = req.params.userId;
     console.log("userId : ", userId);
-
+    const user = await users.findById(userId);
+    if (user.blockUser) {
+      return res
+        .status(403)
+        .json({ message: "User is blocked. Access denied." });
+    }
     let userWallet = await wallet.findOne({ userId });
     console.log("wallet : ", userWallet);
     if (!userWallet) {
@@ -667,10 +685,10 @@ const rateAndReviewMovie = async (req, res) => {
     " ",
     review
   );
-  console.log("movie_id ",movie_id)
+  console.log("movie_id ", movie_id);
   try {
     const existingReview = await RateAndReview.findOne({ user_id, movie_id });
-    console.log("existingReview ", existingReview)
+    console.log("existingReview ", existingReview);
     if (existingReview) {
       return res
         .status(400)
@@ -720,28 +738,47 @@ const getMovieRating = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch movie rating" });
   }
 };
-const getBannerImages = async (req,res)=>{
-  try {    
+const getBannerImages = async (req, res) => {
+  try {
+    console.log("in get banner images ");
     const banners = await Banner.find();
-    res.status(200).json(banners);
+    const bucketName = "showbookerfiles";
+    const bennersWithPresignedUrls = await Promise.all(
+      banners.map(async (banner) => {
+        const presignedUrl = await generatePresignedUrl(
+          bucketName,
+          banner.imageUrl
+        );
+        return {
+          ...banner._doc,
+          bannerUrl: presignedUrl,
+        };
+      })
+    );
+    res.status(200).json(bennersWithPresignedUrls);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch banner images." });
   }
-}
-const fetchUserDetails = async (req,res)=>{
-  try{
+};
+const fetchUserDetails = async (req, res) => {
+  try {
     const userId = req.params.userId;
-    console.log(userId)
-    const user = await users.findById(userId).select("-__v -password"); 
-    console.log("user ",user)
+    console.log(userId);
+    const user = await users.findById(userId).select("-__v -password");
+
     if (!user) {
       return res.status(404).json({ message: "User not found" });
+    }
+    if (user.blockUser) {
+      return res
+        .status(403)
+        .json({ message: "User is blocked. Access denied." });
     }
     res.status(200).json(user);
   } catch (error) {
     res.status(500).json({ message: "Server error", error });
   }
-}
+};
 module.exports = {
   userSignIn,
   verifyOTP,
@@ -759,5 +796,5 @@ module.exports = {
   rateAndReviewMovie,
   getMovieRating,
   getBannerImages,
-  fetchUserDetails
+  fetchUserDetails,
 };

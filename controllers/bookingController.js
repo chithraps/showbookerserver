@@ -2,6 +2,7 @@ const nodemailer = require("nodemailer");
 const seat = require("../models/seatModel");
 const row = require("../models/rowModel");
 const Booking = require("../models/bookingModel");
+const users = require("../models/userModel")
 const ShowTimings = require("../models/showTimings");
 const HeldSeat = require("../models/heldSeatModel");
 const theaters = require("../models/theaterModel");
@@ -380,6 +381,16 @@ const bookTicket = async (req, res) => {
 const getBookingHistory = async (req, res) => {
   try {
     const { userEmail } = req.params;
+    const user = await users.findOne({ email: userEmail });
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    // Check if the user is blocked
+    if (user.blockUser) {
+      return res.status(403).json({ message: "User is blocked. Access denied." });
+    }
+
     const bookings = await Booking.find({ userEmail })
       .populate("movieId")
       .populate("theaterId")
@@ -523,7 +534,7 @@ const cancelSeat = async (req, res) => {
     const seatPrice = seatDetails.row_id.seating_layout_id.price;
     console.log("seatPrice ", seatPrice);
     seatObject.status = "Canceled";
-    booking.totalPrice -= seatPrice;
+    booking.totalPrice = Math.round((booking.totalPrice - seatPrice) * 100) / 100;
     await booking.save();
 
     let userWallet = await wallet.findOne({ userId });
@@ -531,7 +542,7 @@ const cancelSeat = async (req, res) => {
       userWallet = new wallet({ userId, balance: 0 });
       await userWallet.save();
     }
-    userWallet.balance += seatPrice;
+    userWallet.balance = Math.round((userWallet.balance + seatPrice) * 100) / 100;
     await userWallet.save();
 
     return res.json({ message: "Seat canceled successfully", booking });

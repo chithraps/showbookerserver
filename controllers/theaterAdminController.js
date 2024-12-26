@@ -29,9 +29,9 @@ const loginTheaterManager = async (req, res) => {
       return res.status(400).json({ message: "Invalid username or password" });
     }
 
-    // Check if the associated theater is blocked (isDeleted is true)
+    
     if (tmData.theater_id.isDeleted) {
-      return res.status(403).json({ message: "Theater is blocked. Contact support." });
+      return res.status(403).json({ message: "Theater is blocked. You can reach the admin at admin@gmail.com for further assistance." });
     }
 
     // Verify the password
