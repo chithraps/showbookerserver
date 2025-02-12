@@ -367,6 +367,7 @@ const fetchTheatersForMovie = async (req, res) => {
 
     const selectedDateObj = new Date(selectedDate);
     const today = new Date();
+    console.log("today ",today.toString())
     const isToday = selectedDateObj.toDateString() === today.toDateString();
     console.log("isToday:", isToday);
 
