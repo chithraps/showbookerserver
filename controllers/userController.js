@@ -370,46 +370,55 @@ const fetchTheatersForMovie = async (req, res) => {
     const isToday = selectedDateObj.toDateString() === today.toDateString();
     console.log("isToday:", isToday);
 
-    showTimingList = showTimingList.map((show) => {
-      let filteredTimings = show.timings;
+    showTimingList = showTimingList
+      .map((show) => {
+        let filteredTimings = show.timings;
 
-      if (isToday) {
-        const currentTime = today.getHours() * 60 + today.getMinutes();
+        if (isToday) {
+          const currentTime = today.getHours() * 60 + today.getMinutes();
 
-        filteredTimings = show.timings.filter((timing) => {
-          // Convert 12-hour time format with AM/PM to 24-hour time format
-          const time = timing.replace(/(AM|PM)/i, "").trim();
-          const [rawHours, minutes] = time.split(":").map(Number);
-          const period = timing.includes("PM") ? "PM" : "AM";
-          let hours = rawHours;
+          filteredTimings = show.timings.filter((timing) => {
+            try {
+              // Extract time and period (AM/PM)
+              const match = timing.match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/i);
+              if (!match) {
+                console.error("Invalid timing format:", timing);
+                return false;
+              }
 
-          if (period === "PM" && hours < 12) hours += 12;
-          if (period === "AM" && hours === 12) hours = 0;
+              let [_, hours, minutes, period] = match;
+              hours = parseInt(hours, 10);
+              minutes = parseInt(minutes, 10);
 
-          if (isNaN(hours) || isNaN(minutes)) {
-            console.error("Invalid timing format:", timing);
-            return false;
-          }
+              // Convert to 24-hour format
+              if (period.toUpperCase() === "PM" && hours < 12) hours += 12;
+              if (period.toUpperCase() === "AM" && hours === 12) hours = 0;
 
-          const showTimeInMinutes = hours * 60 + minutes;
+              const showTimeInMinutes = hours * 60 + minutes;
 
-          return showTimeInMinutes > currentTime;
-        });
-        console.log(filteredTimings);
-      }
-
-      return {
-        theater: show.theater_id.name,
-        theaterId: show.theater_id._id,
-        screen: show.screen_id.screen_number,
-        screenId: show.screen_id._id,
-        timings: filteredTimings,
-        location: show.theater_id.location,
-        city: show.theater_id.city,
-        state: show.theater_id.state,
-        country: show.theater_id.country,
-      };
-    });
+              return showTimeInMinutes > currentTime;
+            } catch (err) {
+              console.error("Error parsing time:", err);
+              return false;
+            }
+          });
+        }
+         console.log("filtered timings ",filteredTimings)
+        return filteredTimings.length > 0
+          ? {
+              theater: show.theater_id.name,
+              theaterId: show.theater_id._id,
+              screen: show.screen_id.screen_number,
+              screenId: show.screen_id._id,
+              timings: filteredTimings,
+              location: show.theater_id.location,
+              city: show.theater_id.city,
+              state: show.theater_id.state,
+              country: show.theater_id.country,
+            }
+          : null; 
+      })
+      .filter(Boolean); 
 
     res.status(200).json(showTimingList);
   } catch (error) {
@@ -417,6 +426,7 @@ const fetchTheatersForMovie = async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
+
 const fetchShowingMovies = async (req, res) => {
   const { location } = req.query;
   try {
