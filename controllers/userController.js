@@ -366,8 +366,12 @@ const fetchTheatersForMovie = async (req, res) => {
       .populate("screen_id");
 
     const selectedDateObj = new Date(selectedDate);
-    const today = new Date();
-    console.log("today ",today.toString())
+
+    const today = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
+    );
+    console.log("Current IST Date:", today.toDateString());
+
     const isToday = selectedDateObj.toDateString() === today.toDateString();
     console.log("isToday:", isToday);
 
@@ -404,7 +408,7 @@ const fetchTheatersForMovie = async (req, res) => {
             }
           });
         }
-         console.log("filtered timings ",filteredTimings)
+        console.log("filtered timings ", filteredTimings);
         return filteredTimings.length > 0
           ? {
               theater: show.theater_id.name,
@@ -417,9 +421,9 @@ const fetchTheatersForMovie = async (req, res) => {
               state: show.theater_id.state,
               country: show.theater_id.country,
             }
-          : null; 
+          : null;
       })
-      .filter(Boolean); 
+      .filter(Boolean);
 
     res.status(200).json(showTimingList);
   } catch (error) {
