@@ -2,14 +2,15 @@ const nodemailer = require("nodemailer");
 const seat = require("../models/seatModel");
 const row = require("../models/rowModel");
 const Booking = require("../models/bookingModel");
-const users = require("../models/userModel")
+const users = require("../models/userModel");
 const ShowTimings = require("../models/showTimings");
 const HeldSeat = require("../models/heldSeatModel");
 const theaters = require("../models/theaterModel");
 const movies = require("../models/moviesModel");
 const screen = require("../models/screenModel");
 const wallet = require("../models/WalletModel");
-const {S3Client,GetObjectCommand } = require("@aws-sdk/client-s3");
+const walletTransaction = require("../models/walletTransactionModel");
+const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const Razorpay = require("razorpay");
 const qrcode = require("qrcode");
@@ -30,7 +31,6 @@ const s3 = new S3Client({
 });
 
 async function generatePresignedUrl(bucketName, key) {
-  
   try {
     const command = new GetObjectCommand({
       Bucket: bucketName,
@@ -41,7 +41,7 @@ async function generatePresignedUrl(bucketName, key) {
     return url;
   } catch (error) {
     console.error("Error generating presigned URL:", error);
-    return null; 
+    return null;
   }
 }
 const holdSeats = async (
@@ -186,7 +186,7 @@ const bookTicket = async (req, res) => {
       movie_id: movieId,
       timings: showTime,
     });
-    console.log("showDetails ", showDetails);
+
     if (!showDetails) {
       console.log("Invalid show details provided");
       return res.status(400).json({ message: "Invalid show details provided" });
@@ -197,8 +197,9 @@ const bookTicket = async (req, res) => {
       showDate,
       showTime,
       "seatIds.seatId": { $in: seatIds },
+      "seatIds.status": "Booked",
     });
-    console.log("existingBookings ", existingBookings);
+
     if (existingBookings.length > 0) {
       console.log("Some seats are already booked");
       return res.status(400).json({ message: "Some seats are already booked" });
@@ -276,7 +277,16 @@ const bookTicket = async (req, res) => {
 
     newBooking.qrCode = qrCodeUrl;
     const savedBooking = await newBooking.save();
-
+    if (payment.method === "wallet") {
+      console.log("in wallet transaction model")
+      const walletTransactionDetails = new walletTransaction({
+        userId,
+        amount: totalAmount,
+        type: "Debit",
+        booking_Id: savedBooking._id,
+      });
+      await walletTransactionDetails.save();
+    }
     const screenDetails = await screen.findById({ _id: screenId });
     const movieDetails = await movies.findById({ _id: movieId });
 
@@ -388,7 +398,9 @@ const getBookingHistory = async (req, res) => {
 
     // Check if the user is blocked
     if (user.blockUser) {
-      return res.status(403).json({ message: "User is blocked. Access denied." });
+      return res
+        .status(403)
+        .json({ message: "User is blocked. Access denied." });
     }
 
     const bookings = await Booking.find({ userEmail })
@@ -412,7 +424,7 @@ const getBookingHistory = async (req, res) => {
     const bucketName = "showbookerfiles";
     const updatedBookings = await Promise.all(
       bookings.map(async (booking) => {
-        const movie = booking.movieId; 
+        const movie = booking.movieId;
         const moviePosterUrl = await generatePresignedUrl(
           bucketName,
           movie.poster
@@ -426,7 +438,7 @@ const getBookingHistory = async (req, res) => {
         (seat) => seat.status === "Booked"
       );
       return count + bookedSeats.length;
-    }, 0);   
+    }, 0);
     res.status(200).json({ bookings: updatedBookings, bookedSeatCount });
   } catch (error) {
     console.error("Error fetching booking history:", error);
@@ -462,6 +474,17 @@ const cancelBooking = async (req, res) => {
         .status(403)
         .json({ message: "You are not authorized to cancel this booking." });
     }
+    let refundAmount = 0;
+
+    // Iterate over seatIds and calculate refund amount for non-canceled seats
+
+    bookingInfo.seatIds.forEach((seat) => {
+      if (seat.status !== "Canceled") {
+        const seatPrice = seat.seatId.row_id.seating_layout_id.price;
+        refundAmount += seatPrice;
+        seat.status = "Canceled"; // Mark seat as canceled
+      }
+    });
 
     const booking = await Booking.findByIdAndUpdate(
       bookingId,
@@ -482,9 +505,19 @@ const cancelBooking = async (req, res) => {
       await userWallet.save();
       console.log("New wallet created: ", userWallet);
     }
-    const refundAmount = booking.totalPrice;
-    userWallet.balance += refundAmount;
+    userWallet.balance =
+      Math.round((userWallet.balance + refundAmount) * 100) / 100;
     await userWallet.save();
+
+    // Record the wallet transaction
+
+    const walletTransactionDetails = new walletTransaction({
+      userId,
+      amount: refundAmount,
+      type: "Credit",
+      bookingId,
+    });
+    await walletTransactionDetails.save();
     console.log("new balance ", userWallet.balance);
     return res.json({ message: "Booking canceled successfully", booking });
   } catch (error) {
@@ -508,7 +541,7 @@ const cancelSeat = async (req, res) => {
     if (!booking) {
       return res.status(404).json({ message: "Booking not found" });
     }
-    console.log("booking id is ", booking);
+    //console.log("booking id is ", booking);
 
     const seatObject = booking.seatIds.find((s) => s.seatId.equals(seatId));
     console.log("seat found ", seatObject);
@@ -534,17 +567,40 @@ const cancelSeat = async (req, res) => {
     const seatPrice = seatDetails.row_id.seating_layout_id.price;
     console.log("seatPrice ", seatPrice);
     seatObject.status = "Canceled";
-    booking.totalPrice = Math.round((booking.totalPrice - seatPrice) * 100) / 100;
+    seatObject.isRefunded = true;
+    /* booking.totalPrice = Math.round((booking.totalPrice - seatPrice) * 100) / 100;  */
     await booking.save();
+
+    // Seat amount is credited to wallet
 
     let userWallet = await wallet.findOne({ userId });
     if (!userWallet) {
       userWallet = new wallet({ userId, balance: 0 });
       await userWallet.save();
     }
-    userWallet.balance = Math.round((userWallet.balance + seatPrice) * 100) / 100;
+    userWallet.balance =
+      Math.round((userWallet.balance + seatPrice) * 100) / 100;
     await userWallet.save();
 
+    // for wallet history
+    const walletTransactionDetails = new walletTransaction({
+      userId,
+      amount: seatPrice,
+      type: "Credit", // Since it's a refund
+      bookingId,
+    });
+    //booking.status = "Canceled";
+    await walletTransactionDetails.save();
+    // if allseats are cancelled then status will be cancelled
+    const allSeatsCanceled = booking.seatIds.every(
+      (s) => s.status === "Canceled"
+    );
+    console.log("all seats cancelled ", allSeatsCanceled);
+    if (allSeatsCanceled) {
+      console.log("all seats are canceled ");
+      booking.status = "Canceled";
+      await booking.save();
+    }
     return res.json({ message: "Seat canceled successfully", booking });
   } catch (error) {
     console.error("Error canceling seat:", error);
