@@ -9,7 +9,8 @@ const walletSchema = new mongoose.Schema({
       balance: { 
         type: Number, 
         default: 0 
-      },      
+      }, 
+           
       timestamp: { 
         type: Date,  
         default: Date.now 
