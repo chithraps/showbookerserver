@@ -27,5 +27,6 @@ user_rout.get('/wallet/:userId',verifyToken('user'),userController.fetchWalletBa
 user_rout.post('/deductWalletBalance',verifyToken('user'),userController.deductWalletBalance);
 user_rout.post('/rateMovie',verifyToken('user'),userController.rateAndReviewMovie)
 user_rout.get('/movieRating/:id',userController.getMovieRating);
-user_rout.get('/getBannerImages',userController.getBannerImages)
+user_rout.get('/getBannerImages',userController.getBannerImages);
+user_rout.get('/getWalletTransactions/:userId',verifyToken('user'),userController.getWalletTransactions)
 module.exports = user_rout;    
