@@ -13,6 +13,7 @@ const RateAndReview = require("../models/rateAndReviewModel");
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const wallet = require("../models/WalletModel");
+const WalletTransaction = require("../models/walletTransactionModel");
 const jwt = require("jsonwebtoken");
 const axios = require("axios");
 const dotenv = require("dotenv");
@@ -537,7 +538,7 @@ const showScreenLayout = async (req, res) => {
 
     const bookedSeatIds = bookings.reduce((acc, booking) => {
       booking.seatIds.forEach((seat) => {
-        if (["Booked", "Canceled"].includes(seat.status)) {
+        if (["Booked"].includes(seat.status)) {
           acc.add(seat.seatId.toString());
         }
       });
@@ -630,8 +631,7 @@ const fetchDetails = async (req, res) => {
 };
 const fetchWalletBalance = async (req, res) => {
   try {
-    const userId = req.params.userId;
-    console.log("userId : ", userId);
+    const userId = req.params.userId;    
     const user = await users.findById(userId);
     if (user.blockUser) {
       return res
@@ -639,7 +639,7 @@ const fetchWalletBalance = async (req, res) => {
         .json({ message: "User is blocked. Access denied." });
     }
     let userWallet = await wallet.findOne({ userId });
-    console.log("wallet : ", userWallet);
+    
     if (!userWallet) {
       console.log("Wallet not found, creating a new wallet...");
       userWallet = new wallet({
@@ -667,10 +667,10 @@ const deductWalletBalance = async (req, res) => {
     if (userWallet.balance < amount) {
       return res.status(400).json({ message: "Insufficient wallet balance" });
     }
-    userWallet.balance -= amount;
+    userWallet.balance = parseFloat((userWallet.balance - amount).toFixed(1));
 
     await userWallet.save();
-
+    
     const transactionId = generateTransactionId();
     console.log("Transaction ID:", transactionId);
 
@@ -794,6 +794,19 @@ const fetchUserDetails = async (req, res) => {
     res.status(500).json({ message: "Server error", error });
   }
 };
+const getWalletTransactions = async (req,res)=>{
+  console.log("In get wallet transactions. ")
+  try{
+    const { userId } = req.params;
+    console.log("userId ",userId)
+    const transactions = await WalletTransaction.find({ userId })
+      .sort({ timestamp: -1 }) 
+      .limit(10); 
+    res.status(200).json({ transactions });
+  }catch(error){
+
+  }
+}
 module.exports = {
   userSignIn,
   verifyOTP,
@@ -812,4 +825,5 @@ module.exports = {
   getMovieRating,
   getBannerImages,
   fetchUserDetails,
+  getWalletTransactions,
 };
