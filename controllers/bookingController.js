@@ -421,7 +421,7 @@ const getBookingHistory = async (req, res) => {
         .status(404)
         .json({ message: "No booking history found for this user." });
     }
-    const bucketName = "showbookerfiles";
+    const bucketName = "necessaryfiles"; 
     const updatedBookings = await Promise.all(
       bookings.map(async (booking) => {
         const movie = booking.movieId;
