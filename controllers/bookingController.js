@@ -137,6 +137,7 @@ const placeOrder = async (req, res) => {
       currency: currency,
       receipt: `receipt_${Date.now()}`,
     };
+    
     const order = await razorpayInstance.orders.create(options);
     console.log("order ", order);
     res.json(order);
@@ -159,6 +160,7 @@ const confirmPayment = async (req, res) => {
       console.log("signature verified");
       res.json({ status: "success" });
     } else {
+      console.log("falied **** ")
       res.status(400).json({ status: "failed" });
     }
   } catch (error) {
@@ -421,7 +423,7 @@ const getBookingHistory = async (req, res) => {
         .status(404)
         .json({ message: "No booking history found for this user." });
     }
-    const bucketName = "necessaryfiles"; 
+    const bucketName = process.env.S3_BUCKET_NAME
     const updatedBookings = await Promise.all(
       bookings.map(async (booking) => {
         const movie = booking.movieId;
@@ -482,7 +484,7 @@ const cancelBooking = async (req, res) => {
       if (seat.status !== "Canceled") {
         const seatPrice = seat.seatId.row_id.seating_layout_id.price;
         refundAmount += seatPrice;
-        seat.status = "Canceled"; // Mark seat as canceled
+        seat.status = "Canceled"; 
       }
     });
 

@@ -328,7 +328,7 @@ const fetchMovieDetails = async (req, res) => {
     if (!movie) {
       return res.status(404).json({ message: "Movie not found" });
     }
-    const bucketName = "necessaryfiles";
+    const bucketName = process.env.S3_BUCKET_NAME
     const posterPresignedUrl = await generatePresignedUrl(
       bucketName,
       movie.poster
@@ -458,7 +458,7 @@ const fetchShowingMovies = async (req, res) => {
       .find({ _id: { $in: movieIds } })
       .populate("genre_id");
 
-    const bucketName = "necessaryfiles";
+    const bucketName = process.env.S3_BUCKET_NAME;
     const moviesWithPresignedUrls = await Promise.all(
       movieList.map(async (movie) => {
         const presignedUrl = await generatePresignedUrl(
@@ -757,7 +757,7 @@ const getBannerImages = async (req, res) => {
   try {
     console.log("in get banner images ");
     const banners = await Banner.find();
-    const bucketName = "necessaryfiles";
+    const bucketName = process.env.S3_BUCKET_NAME;
     const bennersWithPresignedUrls = await Promise.all(
       banners.map(async (banner) => {
         const presignedUrl = await generatePresignedUrl(
@@ -770,7 +770,7 @@ const getBannerImages = async (req, res) => {
         };
       })
     );
-    console.log("banner images ",bennersWithPresignedUrls)
+    
     res.status(200).json(bennersWithPresignedUrls);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch banner images." });

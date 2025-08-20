@@ -4,6 +4,7 @@ const verifyToken = (requiredRole) => (req, res, next) => {
   const authHeader = req.headers.authorization;
  
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    console.log(authHeader)
     console.log("No token");
     return res.status(401).json({ error: "Unauthorized: No token provided" });
   }
@@ -22,6 +23,7 @@ const verifyToken = (requiredRole) => (req, res, next) => {
     }
 
     const { userId, userEmail, role } = decoded;
+    console.log("decoded ",decoded)
     console.log("Token available, user role:", role, "user email:", userEmail, "user id:", userId);
 
     if (requiredRole && role !== requiredRole) {

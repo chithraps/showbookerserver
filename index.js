@@ -21,6 +21,8 @@ const bookingController = require("./controllers/bookingController");
 app.use(express.json());
 app.use(cors());
 
+
+
 app.use("/public", express.static(path.join(__dirname, "public")));
 
 //connection to database

@@ -5,6 +5,10 @@ const Bookings = require("../models/bookingModel");
 const ShowTimings = require("../models/showTimings");
 const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
+async function hashPassword(newPassword) {
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+  console.log("Hashed Password:", hashedPassword);
+}
 const createToken = (id, email) => {
   const role = "theaterAdmin";
   const token = jwt.sign(
@@ -22,7 +26,7 @@ const createToken = (id, email) => {
 const loginTheaterManager = async (req, res) => {
   try {
     const { email, password } = req.body;
-
+    
     // Find the theaterAdmin by email
     const tmData = await theaterAdmin.findOne({ email }).populate('theater_id');
     if (!tmData) {

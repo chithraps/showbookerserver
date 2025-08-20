@@ -15,6 +15,7 @@ admin_rout.put('/editTheater/:theaterId',verifyToken('admin'),theaterController.
 admin_rout.post('/addTheater',verifyToken('admin'),theaterController.createTheater);
 admin_rout.put('/deleteTheater/:id',verifyToken('admin'),theaterController.deleteTheater)
 admin_rout.get('/viewGenres',verifyToken('admin'),adminController.viewGenres);   
+admin_rout.get('/getGenre',verifyToken('admin'),adminController.getGenre)
 admin_rout.post('/addGenre',verifyToken('admin'),adminController.addGenre)
 admin_rout.put('/updateGenre/:genreId',verifyToken('admin'),adminController.updateGenre)
 admin_rout.put('/toggleBlockGenre/:id',verifyToken('admin'),adminController.blockGenre);

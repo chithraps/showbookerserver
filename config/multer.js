@@ -8,11 +8,12 @@ const s3 = new S3Client({
       secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
     },
   }); 
+  const dotenv = require("dotenv");
  
   const imageUpload = multer({
     storage: multerS3({
       s3: s3,
-      bucket: "showbookerfiles",      
+      bucket: process.env.S3_BUCKET_NAME,      
       metadata: (req, file, cb) => {
         cb(null, { fieldName: file.fieldname });
       },
@@ -20,20 +21,20 @@ const s3 = new S3Client({
         cb(null, Date.now().toString() + "-" + file.originalname); 
       },
     }),
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB file size limit
+    limits: { fileSize: 5 * 1024 * 1024 }, 
   });
 const bannerImageUpload = multer({
   storage: multerS3({
     s3: s3,
-    bucket: "showbookerfiles", 
+    bucket: process.env.S3_BUCKET_NAME, 
     metadata: (req, file, cb) => {
       cb(null, { fieldName: file.fieldname });
     },
     key: (req, file, cb) => {
-      cb(null, `banners/${Date.now().toString()}-${file.originalname}`); // Prefix for banners
+      cb(null, `banners/${Date.now().toString()}-${file.originalname}`); 
     },
   }),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB file size limit
+  limits: { fileSize: 5 * 1024 * 1024 }, 
 });
 module.exports = {
     imageUpload,

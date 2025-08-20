@@ -3,7 +3,7 @@ const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 const admin = require("../models/adminModel");
 const users = require("../models/userModel");
-const ShowTimings = require("../models/showTimings")
+const ShowTimings = require("../models/showTimings");
 const theaterManager = require("../models/theaterManagerModel");
 const jwt = require("jsonwebtoken");
 const theater = require("../models/theaterModel");
@@ -11,7 +11,11 @@ const genres = require("../models/genreModel");
 const Booking = require("../models/bookingModel");
 const movies = require("../models/moviesModel");
 const Banner = require("../models/bannerModel");
-const {S3Client,GetObjectCommand,DeleteObjectCommand} = require("@aws-sdk/client-s3");
+const {
+  S3Client,
+  GetObjectCommand,
+  DeleteObjectCommand,
+} = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const dotenv = require("dotenv");
 dotenv.config();
@@ -51,18 +55,17 @@ const s3 = new S3Client({
 });
 
 async function generatePresignedUrl(bucketName, key) {
- 
   try {
     const command = new GetObjectCommand({
       Bucket: bucketName,
       Key: key,
     });
 
-    const url = await getSignedUrl(s3, command, { expiresIn: 3600 }); // 1 hour expiration
+    const url = await getSignedUrl(s3, command, { expiresIn: 3600 });
     return url;
   } catch (error) {
     console.error("Error generating presigned URL:", error);
-    return null; 
+    return null;
   }
 }
 
@@ -210,6 +213,18 @@ const viewGenres = async (req, res) => {
     res.status(500).json({ message: "Error fetching genres" });
   }
 };
+const getGenre = async (req, res) => {
+  try {
+    console.log("in get genre")
+    const existingGenre = await genres.find();
+    res.status(200).json({
+      genres: existingGenre,
+    });
+  } catch (error) {
+    console.log("Error fetching genres : ",error)
+    res.status(500).json({message:"Error fetching genres"})
+  }
+};
 
 const addGenre = async (req, res) => {
   try {
@@ -280,7 +295,7 @@ const blockGenre = async (req, res) => {
     });
   }
 };
-const viewMovies = async (req, res) => { 
+const viewMovies = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -291,11 +306,25 @@ const viewMovies = async (req, res) => {
       .populate("genre_id")
       .skip(skip)
       .limit(limit);
+      
+
+    const moviesWithUrls = await Promise.all(
+      movieList.map(async (movie) => {
+        if (movie.poster) {  
+          const posterUrl = await generatePresignedUrl(
+            process.env.S3_BUCKET_NAME,
+            movie.poster
+          );
+          return { ...movie.toObject(), posterUrl };
+        }
+        return movie.toObject();
+      })
+    );
 
     const totalMovies = await movies.countDocuments();
 
     res.status(200).json({
-      movies: movieList,
+      movies: moviesWithUrls,
       totalMovies,
       totalPages: Math.ceil(totalMovies / limit),
       currentPage: page,
@@ -322,7 +351,7 @@ const addMovie = async (req, res) => {
       crew,
     } = req.body;
     const poster = req.file ? req.file.key : null;
-   
+
     console.log("Title:", title);
     console.log("Genre ID:", genre_id);
     console.log("Release Date:", release_date);
@@ -331,7 +360,7 @@ const addMovie = async (req, res) => {
     console.log("Language:", language);
     console.log("cast :", cast);
     console.log("crew :", crew);
-    
+
     // Log the received values for debugging
     console.log("Title:", title);
     console.log("Poster URL:", poster);
@@ -505,7 +534,7 @@ const addBannerImage = async (req, res) => {
       return res.status(400).json({ message: "No file uploaded" });
     }
 
-   const banner = new Banner({
+    const banner = new Banner({
       imageUrl: bannerImage,
     });
 
@@ -514,7 +543,7 @@ const addBannerImage = async (req, res) => {
     res.status(200).json({
       message: "Banner uploaded and saved successfully",
       imageUrl: banner.imageUrl,
-    }); 
+    });
   } catch (error) {
     console.error("Failed to save banner", error);
     res.status(500).json({ message: "Failed to upload and save banner" });
@@ -524,16 +553,20 @@ const getAllBannerImages = async (req, res) => {
   try {
     console.log("in get banner images ");
     const banners = await Banner.find();
-    const bucketName = "showbookerfiles"; 
+    const bucketName = process.env.S3_BUCKET_NAME;
+    console.log("bucketName ", bucketName);
     const bennersWithPresignedUrls = await Promise.all(
       banners.map(async (banner) => {
-        const presignedUrl = await generatePresignedUrl(bucketName, banner.imageUrl);
+        const presignedUrl = await generatePresignedUrl(
+          bucketName,
+          banner.imageUrl
+        );
         return {
           ...banner._doc,
-          bannerUrl: presignedUrl, 
+          bannerUrl: presignedUrl,
         };
       })
-    );    
+    );
     res.status(200).json(bennersWithPresignedUrls);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch banner images." });
@@ -546,14 +579,14 @@ const deleteBannerImage = async (req, res) => {
     if (!banner) {
       return res.status(404).json({ message: "Banner not found." });
     }
-   
-    console.log("banner image ",banner.imageUrl)
-    
+
+    console.log("banner image ", banner.imageUrl);
+
     const key = banner.imageUrl;
-    console.log(key)
+    console.log(key);
     // Delete the file from S3
     const deleteParams = {
-      Bucket: "showbookerfiles",
+      Bucket: process.env.S3_BUCKET_NAME,
       Key: key,
     };
 
@@ -588,14 +621,16 @@ const statistics = async (req, res) => {
     res.status(500).json({ message: "Failed to retrieve statistics" });
   }
 };
-const bookingStatus = async(req,res)=>{
-try {
-  const bookings = await Booking.find().select('status');
-  res.json(bookings);
-} catch (error) {
-  res.status(500).json({ message: 'Error fetching booking status counts', error });
-}
-}
+const bookingStatus = async (req, res) => {
+  try {
+    const bookings = await Booking.find().select("status");
+    res.json(bookings);
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Error fetching booking status counts", error });
+  }
+};
 const bookings = async (req, res) => {
   try {
     const { status, page = 1, limit = 10 } = req.query;
@@ -603,7 +638,7 @@ const bookings = async (req, res) => {
 
     const skip = (page - 1) * limit;
     const bookings = await Booking.find(filter)
-      .populate('userId movieId theaterId screenId seatIds.seatId')
+      .populate("userId movieId theaterId screenId seatIds.seatId")
       .skip(skip)
       .limit(parseInt(limit))
       .exec();
@@ -638,4 +673,5 @@ module.exports = {
   statistics,
   bookingStatus,
   bookings,
+  getGenre,
 };
