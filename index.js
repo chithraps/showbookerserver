@@ -19,9 +19,12 @@ const theaterAdminRoutes = require("./routes/theaterAdminRoutes");
 const bookingController = require("./controllers/bookingController");
 // middlewares
 app.use(express.json());
-app.use(cors());
-
-
+app.use(
+  cors({
+    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    credentials: true,
+  })
+);
 
 app.use("/public", express.static(path.join(__dirname, "public")));
 
@@ -120,7 +123,7 @@ io.on("connection", (socket) => {
     "getUserHeldSeats",
     async ({ userId, screenId, showDate, showTime }) => {
       try {
-        const result = await bookingController.findUserHeldSeats({  
+        const result = await bookingController.findUserHeldSeats({
           userId,
           screenId,
           showDate,
