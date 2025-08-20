@@ -18,7 +18,8 @@ const adminRoutes = require("./routes/adminRoutes");
 const theaterAdminRoutes = require("./routes/theaterAdminRoutes");
 const bookingController = require("./controllers/bookingController");
 // middlewares
-app.use(express.json());
+app.use(express.json("client url is ",process.env.CLIENT_URL));
+console.log()
 app.use(
   cors({
     origin: process.env.CLIENT_URL || "http://localhost:3000",
