@@ -3,9 +3,10 @@ const admin_rout = express();
 const multer = require('../config/multer')
 const adminController = require('../controllers/adminController');
 const theaterController = require('../controllers/theaterController');
+
 const {verifyToken} = require("../middlewares/verifyToken")
 
-
+admin_rout.post('/auth/refresh',adminController.refreshToken)
 admin_rout.post('/register',adminController.adminRegister);
 admin_rout.post('/login',adminController.adminLogin) 
 admin_rout.get('/fetchUsers',verifyToken('admin'),adminController.fetchUsers);

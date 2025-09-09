@@ -83,6 +83,14 @@ const createToken = (id, email) => {
 
   return token;
 };
+
+const createRefreshToken = (id, email) => {
+  return jwt.sign(
+    { id, email }, 
+    process.env.JWT_REFRESH_SECRET,   
+    { expiresIn: "7d" }              
+  );
+};
 const createPassword = () => {
   const length = 10;
   return crypto.randomBytes(length).toString("hex").slice(0, length);
@@ -113,6 +121,15 @@ const adminLogin = async (req, res) => {
     const passwordMatch = await bcrypt.compare(password, adminData.password);
     if (passwordMatch) {
       const token = createToken(adminData._id, adminData.email);
+      const refreshToken = createRefreshToken(adminData._id, adminData.email);
+      //console.log("refresh token ",refreshToken)
+    
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production", 
+      sameSite: "strict",
+    });
+
       res.status(200).json({
         token,
         admin: {
@@ -651,6 +668,24 @@ const bookings = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch bookings" });
   }
 };
+
+const refreshToken = (req, res) => {
+  try {
+    const token = req.cookies.refreshToken;
+    if (!token) return res.status(401).json({ message: "No refresh token" });
+
+    jwt.verify(token, process.env.JWT_REFRESH_SECRET, (err, decoded) => {
+      if (err) return res.status(403).json({ message: "Invalid refresh token" });
+
+      const newAccessToken = createToken(decoded.id, decoded.email);
+      res.json({ token: newAccessToken });
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Error refreshing token" });
+  }
+};
+
+
 module.exports = {
   adminRegister,
   adminLogin,
@@ -674,4 +709,5 @@ module.exports = {
   bookingStatus,
   bookings,
   getGenre,
+  refreshToken
 };

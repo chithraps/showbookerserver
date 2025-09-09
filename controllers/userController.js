@@ -19,6 +19,8 @@ const axios = require("axios");
 const dotenv = require("dotenv");
 const mongoose = require("mongoose");
 const Banner = require("../models/bannerModel");
+const {ERROR_MESSAGES} = require("../constants/errorMessages")
+const {STATUS_CODES} = require("../constants/statusCodes")
 dotenv.config();
 
 const s3 = new S3Client({
@@ -102,8 +104,8 @@ const userSignIn = async (req, res) => {
       const existingUser = await users.findOne({ email: userEmail });
       if (existingUser && existingUser.blockUser) {
         return res
-          .status(403)
-          .json({ message: "User is blocked. Access denied." });
+          .status(STATUS_CODES.FORBIDDEN)
+          .json({ message: ERROR_MESSAGES.USER_BLOCKED });
       }
       if (!existingUser) {
         console.log("new user");
@@ -147,8 +149,8 @@ const userSignIn = async (req, res) => {
       const existingUser = await users.findOne({ email });
       if (existingUser && existingUser.blockUser) {
         return res
-          .status(403)
-          .json({ message: "User is blocked. Access denied." });
+          .status(STATUS_CODES.FORBIDDEN)
+          .json({ message: ERROR_MESSAGES.USER_BLOCKED });
       }
       if (!existingUser) {
         const user = new users({
@@ -183,7 +185,7 @@ const verifyOTP = async (req, res) => {
     console.log(storedOtpDetails);
     if (!storedOtpDetails) {
       console.log("inside stored OTP details");
-      return res.status(400).json({ message: "Invalid or expired OTP" });
+      return res.status(STATUS_CODES.BAD_REQUEST).json({ message: ERROR_MESSAGES.INVALID_OTP });
     }
 
     // Delete OTP after successful verification
@@ -195,7 +197,7 @@ const verifyOTP = async (req, res) => {
     }
 
     const token = createToken(user._id, user.email);
-    res.status(200).json({
+    res.status(STATUS_CODES.OK).json({
       token,
       user: {
         id: user._id,
@@ -207,7 +209,7 @@ const verifyOTP = async (req, res) => {
     });
   } catch (error) {
     console.log("error occurred ", error);
-    res.status(500).json({ message: "Internal server error" });
+    res.status(STATUS_CODES.INTERNAL_SERVER_ERROR).json({ message: ERROR_MESSAGES.SERVER_ERROR });
   }
 };
 const resendOtp = async (req, res) => {
@@ -216,7 +218,7 @@ const resendOtp = async (req, res) => {
 
     const user = await users.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(STATUS_CODES.NOT_FOUND).json({ message: "User not found" });
     }
     // Generate a new OTP
     const newOtp = generateOtp();
@@ -229,10 +231,10 @@ const resendOtp = async (req, res) => {
 
     await sendOtpEmail(email, newOtp);
 
-    res.status(200).json({ message: "OTP resent successfully" });
+    res.status(STATUS_CODES.OK).json({ message: "OTP resent successfully" });
   } catch (error) {
     console.error("Error resending OTP:", error);
-    res.status(500).json({ message: "Internal server error" });
+    res.status(STATUS_CODES.INTERNAL_SERVER_ERROR).json({ message: ERROR_MESSAGES.SERVER_ERROR });
   }
 };
 const editProfile = async (req, res) => {
@@ -262,7 +264,7 @@ const editProfile = async (req, res) => {
     );
 
     if (!updatedUser) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(STATUS_CODES.NOT_FOUND).json({ message: ERROR_MESSAGES.NOT_FOUND });
     }
 
     res.status(200).json({
